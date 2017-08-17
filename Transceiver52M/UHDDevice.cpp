@@ -29,6 +29,8 @@
 #include <uhd/property_tree.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/thread_priority.hpp>
+#include <uhd/types/sensors.hpp>
+#include <time.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -268,6 +270,7 @@ private:
 	uhd::usrp::multi_usrp::sptr usrp_dev;
 	uhd::tx_streamer::sptr tx_stream;
 	uhd::rx_streamer::sptr rx_stream;
+	
 	enum TxWindowType tx_window;
 	enum uhd_dev_type dev_type;
 
@@ -308,6 +311,8 @@ private:
 	Thread *async_event_thrd;
 	InterfaceType iface;
 	Mutex tune_lock;
+	
+	int gpsts;
 };
 
 void *async_event_loop(uhd_device *dev)
@@ -610,6 +615,8 @@ int uhd_device::open(const std::string &args, int ref, bool swap_channels)
 {
 	const char *refstr;
 
+	gpsts = time(NULL);
+
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
 	uhd::device_addrs_t dev_addrs = uhd::device::find(addr);
@@ -665,7 +672,7 @@ int uhd_device::open(const std::string &args, int ref, bool swap_channels)
 	}
 
 	usrp_dev->set_clock_source(refstr);
-
+	
 	try {
 		set_rates();
         } catch (const std::exception &e) {
@@ -1199,6 +1206,14 @@ double uhd_device::fullScaleOutputValue()
 
 bool uhd_device::recv_async_msg()
 {
+	// GPS GGA (RJ)
+	int now = time(NULL);
+	if ((now - gpsts) > 1) {
+		gpsts = now;
+		uhd::sensor_value_t gps_nmea = usrp_dev->get_mboard_sensor("gps_gpgga");
+		LOG(NOTICE) << gps_nmea.to_pp_string();
+	}
+	
 	uhd::async_metadata_t md;
 
 	thread_enable_cancel(false);
@@ -1216,7 +1231,6 @@ bool uhd_device::recv_async_msg()
 			LOG(ERR) << str_code(md);
 		}
 	}
-
 	return true;
 }
 
