@@ -313,6 +313,8 @@ private:
 	Mutex tune_lock;
 	
 	int gpsts;
+	bool gpsdo_src;	
+	const int gps_reporting_interval = 30;
 };
 
 void *async_event_loop(uhd_device *dev)
@@ -614,8 +616,8 @@ void uhd_device::set_channels(bool swap)
 int uhd_device::open(const std::string &args, int ref, bool swap_channels)
 {
 	const char *refstr;
-
-	gpsts = time(NULL);
+	gpsts = time(NULL) - gps_reporting_interval;
+	gpsdo_src = false;
 
 	// Find UHD devices
 	uhd::device_addr_t addr(args);
@@ -665,6 +667,7 @@ int uhd_device::open(const std::string &args, int ref, bool swap_channels)
 		break;
 	case REF_GPS:
 		refstr = "gpsdo";
+		gpsdo_src = true;
 		break;
 	default:
 		LOG(ALERT) << "Invalid reference type";
@@ -1207,13 +1210,21 @@ double uhd_device::fullScaleOutputValue()
 bool uhd_device::recv_async_msg()
 {
 	// GPS GGA (RJ)
-	int now = time(NULL);
-	if ((now - gpsts) > 1) {
-		gpsts = now;
-		uhd::sensor_value_t gps_nmea = usrp_dev->get_mboard_sensor("gps_gpgga");
-		LOG(NOTICE) << gps_nmea.to_pp_string();
+	if (gpsdo_src) {
+		int now = time(NULL);
+
+		if ((now - gpsts) > gps_reporting_interval) {
+			gpsts = now;
+			uhd::sensor_value_t gps_nmea = usrp_dev->get_mboard_sensor("gps_gpgga");
+			//LOG(NOTICE) << gps_nmea.to_pp_string();
+			
+			FILE *f;
+			f = fopen("/var/log/osmo_gga.log", "w");
+			fprintf(f, "%s\n", gps_nmea.to_pp_string().c_str());
+			fclose(f);
+		}
 	}
-	
+		
 	uhd::async_metadata_t md;
 
 	thread_enable_cancel(false);
